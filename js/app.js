@@ -1,7 +1,7 @@
 // @ts-check
 import { loadTimers, saveTimers, loadState, saveState, loadHistory, saveHistory, exportAll, importAll } from "./storage.js";
 import { getLocalDateString, freshState, ensureCurrentDay, msUntilNextMidnight } from "./day.js";
-import { createTimer, updateTimer, archiveTimer, startTimer, pauseTimer, settleRunning, ensureTimerEntry } from "./timers.js";
+import { createTimer, updateTimer, archiveTimer, startTimer, pauseTimer, ensureTimerEntry } from "./timers.js";
 import { buildDayRecord } from "./history.js";
 import { initTimersUI, renderTimers } from "./timers-ui.js";
 import { initCalendarUI, renderCalendar } from "./calendar-ui.js";
@@ -108,23 +108,14 @@ function scheduleMidnightCheck() {
 }
 scheduleMidnightCheck();
 
-// ---- Settle running timer / catch up rollover when the tab is backgrounded or refocused ----
+// ---- Catch up rollover when the tab is refocused ----
+// A running timer is intentionally left running across screen-off/backgrounding
+// (e.g. a 90-minute standing-desk timer while the phone is locked) — it's only
+// stopped when the user explicitly pauses it. Since `runningSince` is a wall-clock
+// timestamp, elapsed time is always correctly recomputed from it on the next
+// render, however long the app was backgrounded.
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    if (state.runningTimerId) {
-      state = settleRunning(state, new Date());
-      persistAll();
-    }
-  } else {
-    render();
-  }
-});
-
-window.addEventListener("pagehide", () => {
-  if (state.runningTimerId) {
-    state = settleRunning(state, new Date());
-    persistAll();
-  }
+  if (!document.hidden) render();
 });
 
 window.addEventListener("focus", () => render());
