@@ -1,10 +1,11 @@
 // @ts-check
 import { loadTimers, saveTimers, loadState, saveState, loadHistory, saveHistory, exportAll, importAll } from "./storage.js";
 import { getLocalDateString, freshState, ensureCurrentDay, msUntilNextMidnight } from "./day.js";
-import { createTimer, updateTimer, archiveTimer, startTimer, pauseTimer, ensureTimerEntry } from "./timers.js";
+import { createTimer, updateTimer, archiveTimer, startTimer, pauseTimer, ensureTimerEntry, isTimerComplete } from "./timers.js";
 import { buildDayRecord } from "./history.js";
 import { initTimersUI, renderTimers } from "./timers-ui.js";
 import { initCalendarUI, renderCalendar } from "./calendar-ui.js";
+import { playStartSound, playPauseSound, playCompleteSound } from "./sound.js";
 
 /**
  * @typedef {import('./storage.js').TimerDef} TimerDef
@@ -22,6 +23,13 @@ let state = loadState() || freshState(getLocalDateString(), timers.filter((t) =>
 let midnightTimeoutId = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
 let checkpointIntervalId = /** @type {ReturnType<typeof setInterval>|null} */ (null);
 
+// Tracks which timers we've already played the completion chime for today,
+// so the sound fires once per timer per day (on the edge into completion)
+// rather than on every render while it stays complete.
+const completionSoundPlayed = new Set(
+  timers.filter((t) => !t.archived && isTimerComplete(t, state, new Date())).map((t) => t.id)
+);
+
 function persistAll() {
   saveTimers(timers);
   saveState(state);
@@ -34,12 +42,27 @@ function rollForwardIfNeeded() {
     state = result.state;
     history = result.history;
     persistAll();
+    completionSoundPlayed.clear();
+  }
+}
+
+function checkCompletionSounds(now) {
+  for (const timer of timers) {
+    if (timer.archived) continue;
+    const complete = isTimerComplete(timer, state, now);
+    if (complete && !completionSoundPlayed.has(timer.id)) {
+      completionSoundPlayed.add(timer.id);
+      playCompleteSound();
+    } else if (!complete && completionSoundPlayed.has(timer.id)) {
+      completionSoundPlayed.delete(timer.id);
+    }
   }
 }
 
 function render() {
   rollForwardIfNeeded();
   const now = new Date();
+  checkCompletionSounds(now);
   renderTimers(timers, state, now);
   renderCalendar(history, buildDayRecord(timers, state, now), now);
 }
@@ -50,8 +73,10 @@ initTimersUI({
     const now = new Date();
     if (state.runningTimerId === timerId) {
       state = pauseTimer(state, now);
+      playPauseSound();
     } else {
       state = startTimer(state, timerId, now);
+      playStartSound();
     }
     persistAll();
     render();
@@ -87,6 +112,7 @@ initCalendarUI(() => render());
 // on the next explicit start/pause/focus event.
 setInterval(() => {
   const now = new Date();
+  checkCompletionSounds(now);
   renderTimers(timers, state, now);
   renderCalendar(history, buildDayRecord(timers, state, now), now);
 }, 1000);

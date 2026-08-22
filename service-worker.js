@@ -1,7 +1,7 @@
 // Cache-first app-shell strategy. All app data lives in localStorage on the
 // client, so there's no API traffic to worry about here — this only needs
 // to make the static shell available offline.
-const CACHE_NAME = "daily-timers-v5";
+const CACHE_NAME = "daily-timers-v6";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -15,6 +15,7 @@ const SHELL_FILES = [
   "./js/streaks.js",
   "./js/timers-ui.js",
   "./js/calendar-ui.js",
+  "./js/sound.js",
   "./js/utils.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
