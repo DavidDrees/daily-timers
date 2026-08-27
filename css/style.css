@@ -197,6 +197,14 @@ main#app {
   cursor: not-allowed;
 }
 
+.btn-complete:disabled {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+  color: #06210f;
+  font-weight: 600;
+  opacity: 1;
+}
+
 .add-timer-btn {
   width: 100%;
   margin-top: 1rem;

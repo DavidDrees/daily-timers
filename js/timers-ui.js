@@ -127,8 +127,8 @@ export function renderTimers(timers, state, now) {
             <div class="progress-fill" style="width:${pct}%"></div>
           </div>
           <div class="timer-card-actions">
-            <button type="button" class="btn ${isRunning ? "btn-primary" : ""}" data-action="start-pause" data-id="${timer.id}" ${complete && !isRunning ? "disabled" : ""}>
-              ${isRunning ? "Pause" : "Start"}
+            <button type="button" class="btn ${complete ? "btn-complete" : isRunning ? "btn-primary" : ""}" data-action="start-pause" data-id="${timer.id}" ${complete ? "disabled" : ""}>
+              ${complete ? "Complete" : isRunning ? "Pause" : "Start"}
             </button>
           </div>
         </div>

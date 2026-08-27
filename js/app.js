@@ -46,23 +46,31 @@ function rollForwardIfNeeded() {
   }
 }
 
-function checkCompletionSounds(now) {
+function checkCompletions(now) {
+  let mutated = false;
   for (const timer of timers) {
     if (timer.archived) continue;
     const complete = isTimerComplete(timer, state, now);
     if (complete && !completionSoundPlayed.has(timer.id)) {
       completionSoundPlayed.add(timer.id);
       playCompleteSound();
+      // Lock the timer in as finished instead of leaving it silently running —
+      // the Start/Pause button reflects this by disabling and reading "Complete".
+      if (state.runningTimerId === timer.id) {
+        state = pauseTimer(state, now);
+        mutated = true;
+      }
     } else if (!complete && completionSoundPlayed.has(timer.id)) {
       completionSoundPlayed.delete(timer.id);
     }
   }
+  if (mutated) persistAll();
 }
 
 function render() {
   rollForwardIfNeeded();
   const now = new Date();
-  checkCompletionSounds(now);
+  checkCompletions(now);
   renderTimers(timers, state, now);
   renderCalendar(history, buildDayRecord(timers, state, now), now);
 }
@@ -112,7 +120,7 @@ initCalendarUI(() => render());
 // on the next explicit start/pause/focus event.
 setInterval(() => {
   const now = new Date();
-  checkCompletionSounds(now);
+  checkCompletions(now);
   renderTimers(timers, state, now);
   renderCalendar(history, buildDayRecord(timers, state, now), now);
 }, 1000);

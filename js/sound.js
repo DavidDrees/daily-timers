@@ -24,11 +24,12 @@ function getContext() {
  * @param {number} startTime
  * @param {number} duration
  * @param {number} [peakGain]
+ * @param {OscillatorType} [type]
  */
-function playTone(ctx, freq, startTime, duration, peakGain = 0.18) {
+function playTone(ctx, freq, startTime, duration, peakGain = 0.18, type = "sine") {
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-  osc.type = "sine";
+  osc.type = type;
   osc.frequency.value = freq;
   gain.gain.setValueAtTime(0, startTime);
   gain.gain.linearRampToValueAtTime(peakGain, startTime + 0.02);
@@ -67,12 +68,19 @@ export function playPauseSound() {
   });
 }
 
+const COMPLETE_ALARM_SECONDS = 15;
+const COMPLETE_BEEP_PERIOD = 1.0; // seconds between beep-pairs
+
+// A repeating oven-timer-style buzzer (square wave, alternating pitch) that
+// keeps going for 15 seconds — a single quick chime was too easy to miss
+// when a 90-minute timer finishes with the phone out of hand.
 export function playCompleteSound() {
   safely(() => {
     const ctx = getContext();
-    const now = ctx.currentTime;
-    playTone(ctx, 523.25, now, 0.14); // C5
-    playTone(ctx, 659.25, now + 0.11, 0.14); // E5
-    playTone(ctx, 783.99, now + 0.22, 0.32); // G5, held — little celebratory chime
+    const start = ctx.currentTime;
+    for (let t = 0; t < COMPLETE_ALARM_SECONDS; t += COMPLETE_BEEP_PERIOD) {
+      playTone(ctx, 880, start + t, 0.14, 0.24, "square");
+      playTone(ctx, 659.25, start + t + 0.17, 0.14, 0.24, "square");
+    }
   });
 }
