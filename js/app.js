@@ -1,11 +1,11 @@
 // @ts-check
 import { loadTimers, saveTimers, loadState, saveState, loadHistory, saveHistory, exportAll, importAll } from "./storage.js";
 import { getLocalDateString, freshState, ensureCurrentDay, msUntilNextMidnight } from "./day.js";
-import { createTimer, updateTimer, archiveTimer, startTimer, pauseTimer, ensureTimerEntry, isTimerComplete } from "./timers.js";
+import { createTimer, updateTimer, archiveTimer, startTimer, pauseTimer, ensureTimerEntry, isTimerComplete, getLiveRemaining } from "./timers.js";
 import { buildDayRecord } from "./history.js";
 import { initTimersUI, renderTimers } from "./timers-ui.js";
 import { initCalendarUI, renderCalendar } from "./calendar-ui.js";
-import { playStartSound, playPauseSound, playCompleteSound } from "./sound.js";
+import { playStartSound, playPauseSound, scheduleCompletionAlarm, cancelScheduledAlarm } from "./sound.js";
 
 /**
  * @typedef {import('./storage.js').TimerDef} TimerDef
@@ -23,17 +23,32 @@ let state = loadState() || freshState(getLocalDateString(), timers.filter((t) =>
 let midnightTimeoutId = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
 let checkpointIntervalId = /** @type {ReturnType<typeof setInterval>|null} */ (null);
 
-// Tracks which timers we've already played the completion chime for today,
-// so the sound fires once per timer per day (on the edge into completion)
-// rather than on every render while it stays complete.
-const completionSoundPlayed = new Set(
-  timers.filter((t) => !t.archived && isTimerComplete(t, state, new Date())).map((t) => t.id)
-);
+// The completion alarm for whichever timer is currently running, pre-scheduled
+// (see rearmAlarm) rather than discovered later by polling — see sound.js for why.
+let scheduledAlarm = /** @type {OscillatorNode[]} */ ([]);
 
 function persistAll() {
   saveTimers(timers);
   saveState(state);
   saveHistory(history);
+}
+
+/**
+ * Cancels any pending completion alarm and, if a timer is currently running,
+ * schedules a fresh one for its actual remaining time. Called after every
+ * action that could change which timer is running or how much time is left
+ * on it (start/pause, edits, deletes, cross-tab sync, initial load).
+ * @param {Date} now
+ */
+function rearmAlarm(now) {
+  cancelScheduledAlarm(scheduledAlarm);
+  scheduledAlarm = [];
+  if (state.runningTimerId) {
+    const runningTimer = timers.find((t) => t.id === state.runningTimerId);
+    if (runningTimer) {
+      scheduledAlarm = scheduleCompletionAlarm(getLiveRemaining(runningTimer, state, now));
+    }
+  }
 }
 
 function rollForwardIfNeeded() {
@@ -42,26 +57,20 @@ function rollForwardIfNeeded() {
     state = result.state;
     history = result.history;
     persistAll();
-    completionSoundPlayed.clear();
   }
 }
 
+// Locks a timer in as finished the moment it crosses its target, instead of
+// leaving it silently running — the Start/Pause button reflects this by
+// disabling and reading "Complete". The alarm itself is not triggered here;
+// it was already pre-scheduled by rearmAlarm when the timer was started.
 function checkCompletions(now) {
   let mutated = false;
   for (const timer of timers) {
     if (timer.archived) continue;
-    const complete = isTimerComplete(timer, state, now);
-    if (complete && !completionSoundPlayed.has(timer.id)) {
-      completionSoundPlayed.add(timer.id);
-      playCompleteSound();
-      // Lock the timer in as finished instead of leaving it silently running —
-      // the Start/Pause button reflects this by disabling and reading "Complete".
-      if (state.runningTimerId === timer.id) {
-        state = pauseTimer(state, now);
-        mutated = true;
-      }
-    } else if (!complete && completionSoundPlayed.has(timer.id)) {
-      completionSoundPlayed.delete(timer.id);
+    if (state.runningTimerId === timer.id && isTimerComplete(timer, state, now)) {
+      state = pauseTimer(state, now);
+      mutated = true;
     }
   }
   if (mutated) persistAll();
@@ -86,6 +95,7 @@ initTimersUI({
       state = startTimer(state, timerId, now);
       playStartSound();
     }
+    rearmAlarm(now);
     persistAll();
     render();
   },
@@ -98,6 +108,7 @@ initTimersUI({
       timers = [...timers, timer];
       state = ensureTimerEntry(state, timer.id);
     }
+    rearmAlarm(new Date());
     persistAll();
     render();
   },
@@ -107,6 +118,7 @@ initTimersUI({
       state = pauseTimer(state, now);
     }
     timers = archiveTimer(timers, id);
+    rearmAlarm(now);
     persistAll();
     render();
   },
@@ -159,6 +171,7 @@ window.addEventListener("storage", () => {
   timers = loadTimers();
   history = loadHistory();
   state = loadState() || state;
+  rearmAlarm(new Date());
   render();
 });
 
@@ -187,6 +200,7 @@ importInput?.addEventListener("change", async () => {
     timers = loadTimers();
     history = loadHistory();
     state = loadState() || state;
+    rearmAlarm(new Date());
     render();
   } catch (err) {
     alert("Could not import that file — it doesn't look like a valid Daily Timers backup.");
@@ -208,5 +222,10 @@ if ("serviceWorker" in navigator) {
 }
 
 // ---- Initial paint ----
+// Re-arms the alarm for a timer left running from a previous session (e.g. the
+// page was reloaded mid-run). Note this can only actually produce sound once
+// a user gesture happens in *this* page instance — an unavoidable browser
+// autoplay restriction, not something we can route around.
+rearmAlarm(new Date());
 persistAll();
 render();

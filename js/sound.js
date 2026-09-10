@@ -38,6 +38,7 @@ function playTone(ctx, freq, startTime, duration, peakGain = 0.18, type = "sine"
   gain.connect(ctx.destination);
   osc.start(startTime);
   osc.stop(startTime + duration + 0.02);
+  return osc;
 }
 
 // Web Audio can be unavailable or blocked in some contexts; sound is a
@@ -68,19 +69,43 @@ export function playPauseSound() {
   });
 }
 
-const COMPLETE_ALARM_SECONDS = 15;
+const COMPLETE_ALARM_SECONDS = 10;
 const COMPLETE_BEEP_PERIOD = 1.0; // seconds between beep-pairs
 
-// A repeating oven-timer-style buzzer (square wave, alternating pitch) that
-// keeps going for 15 seconds — a single quick chime was too easy to miss
-// when a 90-minute timer finishes with the phone out of hand.
-export function playCompleteSound() {
+/**
+ * Schedules the completion buzzer (repeating square-wave beep pair) to
+ * begin `delaySeconds` from now, using the Web Audio clock rather than a JS
+ * timer. This is deliberately called once, up front, at the moment a timer
+ * is started — not discovered later by polling — because audio scheduling
+ * runs on its own thread and keeps its timing even while the tab is
+ * backgrounded and setInterval/setTimeout get throttled by the browser.
+ * Returns the scheduled oscillator nodes so the caller can cancel them
+ * (e.g. the user paused before the timer actually finished).
+ * @param {number} delaySeconds
+ * @returns {OscillatorNode[]}
+ */
+export function scheduleCompletionAlarm(delaySeconds) {
+  /** @type {OscillatorNode[]} */
+  const nodes = [];
   safely(() => {
     const ctx = getContext();
-    const start = ctx.currentTime;
+    const start = ctx.currentTime + Math.max(0, delaySeconds);
     for (let t = 0; t < COMPLETE_ALARM_SECONDS; t += COMPLETE_BEEP_PERIOD) {
-      playTone(ctx, 880, start + t, 0.14, 0.24, "square");
-      playTone(ctx, 659.25, start + t + 0.17, 0.14, 0.24, "square");
+      nodes.push(playTone(ctx, 880, start + t, 0.14, 0.24, "square"));
+      nodes.push(playTone(ctx, 659.25, start + t + 0.17, 0.14, 0.24, "square"));
     }
   });
+  return nodes;
+}
+
+/**
+ * Cancels a previously scheduled alarm. Safe to call on nodes that have
+ * already played (stopping an already-stopped oscillator just throws,
+ * which `safely` swallows).
+ * @param {OscillatorNode[]} nodes
+ */
+export function cancelScheduledAlarm(nodes) {
+  for (const osc of nodes) {
+    safely(() => osc.stop());
+  }
 }
